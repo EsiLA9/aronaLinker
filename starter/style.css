@@ -741,24 +741,230 @@ img {
 
 @media (max-width: 680px) {
   .linkup-shell {
-    width: min(100%, calc(100% - 16px));
-    padding-top: 16px;
+    width: 100%;
+    padding: 12px 0 108px;
+  }
+
+  .game-topbar,
+  .game-screen {
+    padding-inline: 12px;
+  }
+
+  .game-topbar {
+    gap: 12px;
+    padding-bottom: 12px;
+  }
+
+  .topbar-copy h1 {
+    font-size: clamp(2rem, 10vw, 3rem);
+  }
+
+  .topbar-actions {
+    width: 100%;
+  }
+
+  .topbar-actions .ghost-button,
+  .topbar-actions .primary-button {
+    flex: 1 1 0;
+  }
+
+  .notice,
+  .stage {
+    border-radius: 18px;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.18);
   }
 
   .stage,
   .stage-idle {
-    min-height: calc(100vh - 150px);
-    padding: 16px;
+    min-height: calc(100vh - 136px);
+    padding: 14px 12px;
+  }
+
+  .stage-topbar {
+    align-items: start;
+    gap: 10px;
+  }
+
+  .stage-stats {
+    flex-direction: column;
+    align-items: start;
+    gap: 4px;
+  }
+
+  .selection-chip {
+    width: 100%;
+    min-width: 0;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 14px;
   }
 
   .board-grid {
-    gap: 6px;
+    gap: 5px;
+    margin-top: 14px;
+  }
+
+  .board-cell {
+    padding: 3px;
+    border-radius: 12px;
+  }
+
+  .board-cell img {
+    border-radius: 9px;
+  }
+
+  .workbench-modal,
+  .halo-chara-modal {
+    width: 100%;
+    max-height: 100svh;
+    height: 100svh;
+    margin: 0;
+    padding: 14px 12px 24px;
+    border-radius: 0;
+    border-inline: 0;
+  }
+
+  .modal-head {
+    gap: 10px;
+    padding-bottom: 12px;
+  }
+
+  .modal-title-with-thumb {
+    align-items: start;
+  }
+
+  .modal-title-with-thumb img {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+
+  .bench-section + .bench-section {
+    padding-top: 14px;
+  }
+
+  .bank-head {
+    margin-top: 14px;
+  }
+
+  .asset-row,
+  .mapping-row,
+  .compact-row {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 8px 10px;
+    align-items: start;
+    padding: 10px 0;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .asset-row > :not(img),
+  .mapping-row > :not(img),
+  .compact-row > :not(img) {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  .asset-row img,
+  .mapping-row img,
+  .compact-row img {
+    grid-column: 1;
+    grid-row: 1 / span 6;
+    width: 48px;
+    height: 48px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+  }
+
+  .asset-meta,
+  .mapping-copy {
+    gap: 4px;
+  }
+
+  .alias-field,
+  .field,
+  .select-wrap,
+  .action-row {
+    width: 100%;
+  }
+
+  .action-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .row-note {
+    text-align: left;
+  }
+
+  .field input,
+  .select-wrap select,
+  .alias-field input,
+  .search-field input {
+    min-height: 40px;
+    padding-inline: 12px;
+    border-radius: 14px;
+  }
+
+  .pager-bar {
+    justify-content: start;
+    gap: 10px;
+  }
+
+  .pager-numbers {
+    justify-content: start;
+  }
+
+  .pager-copy {
+    width: 100%;
   }
 
   .timer-toast {
-    right: 16px;
+    right: 12px;
+    left: 12px;
     bottom: 16px;
-    min-width: 164px;
+    min-width: 0;
     padding: 12px 14px;
+    border-radius: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .notice,
+  .stage {
+    border-radius: 16px;
+  }
+
+  .stage-metrics div {
+    padding: 14px 12px;
+    border-radius: 16px;
+  }
+
+  .asset-row img,
+  .mapping-row img,
+  .compact-row img {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+  }
+
+  .asset-row,
+  .mapping-row,
+  .compact-row {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .ghost-button,
+  .primary-button,
+  .compact-action {
+    min-height: 40px;
+  }
+
+  .timer-toast {
+    bottom: 12px;
+    padding: 10px 12px;
   }
 }

@@ -879,10 +879,10 @@ async function downloadWorkspacePack(): Promise<void> {
   syncNotice();
 }
 
-async function importWorkspacePack(files: FileList): Promise<void> {
+async function importWorkspacePack(files: FileList): Promise<boolean> {
   const file = files[0];
   if (!file) {
-    return;
+    return false;
   }
 
   try {
@@ -955,11 +955,13 @@ async function importWorkspacePack(files: FileList): Promise<void> {
     if (view.notice && view.stage && view.modalLayer) {
       syncUiPreserveScroll();
     }
+    return true;
   } catch {
     setNotice("error", "素材压缩包读取失败，请确认 zip 结构正确。");
     if (view.notice) {
       syncNotice();
     }
+    return false;
   }
 }
 
@@ -978,11 +980,16 @@ async function importWorkspacePackFromUrl(url: string): Promise<boolean> {
       item: (index: number) => (index === 0 ? file : null),
     } as unknown as FileList;
 
-    await importWorkspacePack(fileList);
-    return true;
+    return await importWorkspacePack(fileList);
   } catch {
     return false;
   }
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
 }
 
 function applyTheme(): void {
@@ -2611,17 +2618,35 @@ root.addEventListener(
 );
 
 async function bootstrap(): Promise<void> {
+  setNotice("info", autoPackUrl ? "正在加载默认素材包..." : state.notice.text);
   try {
+    applyTheme();
+    render();
+    await nextFrame();
+
     let restored = await restoreWorkspace();
+
+    if (restored) {
+      applyTheme();
+      syncUiPreserveScroll();
+      return;
+    }
 
     if (!restored && autoPackUrl) {
       restored = await importWorkspacePackFromUrl(autoPackUrl);
+    }
+
+    if (restored) {
+      applyTheme();
+      syncUiPreserveScroll();
+      return;
     }
 
     if (!restored) {
       const demo = createDemoData();
       state.halos = demo.halos;
       state.charas = demo.charas;
+      setNotice("info", "已加载演示素材。你可以直接开始，也可以导入本地图片并重新配置关系。");
     }
   } catch (error) {
     console.error("Failed to bootstrap starter game.", error);
@@ -2632,7 +2657,7 @@ async function bootstrap(): Promise<void> {
   }
 
   applyTheme();
-  render();
+  syncUiPreserveScroll();
 }
 
 window.addEventListener("beforeunload", () => {

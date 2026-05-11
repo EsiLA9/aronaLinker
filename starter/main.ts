@@ -952,10 +952,14 @@ async function importWorkspacePack(files: FileList): Promise<void> {
     });
     persistWorkspace();
     setNotice("success", "素材压缩包已导入。");
-    syncUiPreserveScroll();
+    if (view.notice && view.stage && view.modalLayer) {
+      syncUiPreserveScroll();
+    }
   } catch {
     setNotice("error", "素材压缩包读取失败，请确认 zip 结构正确。");
-    syncNotice();
+    if (view.notice) {
+      syncNotice();
+    }
   }
 }
 
@@ -2607,16 +2611,24 @@ root.addEventListener(
 );
 
 async function bootstrap(): Promise<void> {
-  let restored = await restoreWorkspace();
+  try {
+    let restored = await restoreWorkspace();
 
-  if (!restored && autoPackUrl) {
-    restored = await importWorkspacePackFromUrl(autoPackUrl);
-  }
+    if (!restored && autoPackUrl) {
+      restored = await importWorkspacePackFromUrl(autoPackUrl);
+    }
 
-  if (!restored) {
+    if (!restored) {
+      const demo = createDemoData();
+      state.halos = demo.halos;
+      state.charas = demo.charas;
+    }
+  } catch (error) {
+    console.error("Failed to bootstrap starter game.", error);
     const demo = createDemoData();
     state.halos = demo.halos;
     state.charas = demo.charas;
+    setNotice("error", "默认素材加载失败，已回退到演示素材。");
   }
 
   applyTheme();

@@ -22,3 +22,5 @@ npm run build
 ## 资源包
 
 仓库根目录的 `resource.zip` 会在构建时自动复制到 `dist/resource.zip`，并作为 `starter/` 页面的默认素材包自动加载。
+
+temp

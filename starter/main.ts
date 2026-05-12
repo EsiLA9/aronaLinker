@@ -10,6 +10,7 @@ if (!app) {
 const root = app;
 const appTitle = app.dataset.title?.trim() || "Chara-Halo 图片连连看";
 const autoPackUrl = app.dataset.autoPackUrl?.trim() || "";
+const autoPackVersionUrl = app.dataset.autoPackVersionUrl?.trim() || "";
 const storageNamespace = app.dataset.storageKey?.trim() || "starter";
 
 type AssetSource = "demo" | "upload";
@@ -86,6 +87,8 @@ type BoardCell = {
 type Notice = {
   tone: NoticeTone;
   text: string;
+  actionLabel?: string;
+  actionId?: "reload-deployed-pack";
 };
 
 type DemoSet = {
@@ -123,6 +126,11 @@ type SavedWorkspace = {
   audio?: SerializedAudioConfig;
 };
 
+type ResourcePackVersionManifest = {
+  version: string;
+  updatedAt?: string;
+};
+
 type ScrollSnapshot = {
   windowX: number;
   windowY: number;
@@ -135,6 +143,7 @@ type PagerState = {
 };
 
 const STORAGE_KEY = `bagame.${storageNamespace}.workspace.v1`;
+const DEPLOYED_PACK_VERSION_KEY = `bagame.${storageNamespace}.deployed-pack.version`;
 const STORAGE_DB_NAME = "bagame-workspace-db";
 const STORAGE_STORE_NAME = "workspace";
 const DEFAULT_PAGE_SIZE = 8;
@@ -608,6 +617,15 @@ function setNotice(tone: NoticeTone, text: string): void {
   state.notice = { tone, text };
 }
 
+function setNoticeWithAction(
+  tone: NoticeTone,
+  text: string,
+  actionLabel: string,
+  actionId: Notice["actionId"],
+): void {
+  state.notice = { tone, text, actionLabel, actionId };
+}
+
 function getAssetDisplayName(asset: { name: string; alias?: string }): string {
   return (asset.alias ?? "").trim() || asset.name;
 }
@@ -676,6 +694,47 @@ function loadWorkspaceFromDb(): Promise<SavedWorkspace | null> {
         };
       }),
   );
+}
+
+function getStoredDeployedPackVersion(): string {
+  try {
+    return localStorage.getItem(DEPLOYED_PACK_VERSION_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function saveStoredDeployedPackVersion(version: string): void {
+  try {
+    localStorage.setItem(DEPLOYED_PACK_VERSION_KEY, version);
+  } catch {
+    // Ignore persistence failure for version metadata.
+  }
+}
+
+async function fetchDeployedPackVersionManifest(url: string): Promise<ResourcePackVersionManifest | null> {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(url, { cache: "no-cache" });
+    if (!response.ok) {
+      return null;
+    }
+
+    const parsed = (await response.json()) as Partial<ResourcePackVersionManifest>;
+    if (!parsed.version || typeof parsed.version !== "string") {
+      return null;
+    }
+
+    return {
+      version: parsed.version,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function normalizePagerPage(totalItems: number, pageSize: number, page: number): number {
@@ -1553,6 +1612,29 @@ async function importWorkspacePackFromUrl(url: string): Promise<boolean> {
     return await importWorkspacePack(fileList);
   } catch {
     return false;
+  }
+}
+
+async function reloadDeployedWorkspacePack(): Promise<void> {
+  if (!autoPackUrl) {
+    setNotice("error", "当前页面没有配置默认部署资源包。");
+    syncNotice();
+    return;
+  }
+
+  setNotice("info", "正在重新加载部署资源包...");
+  syncNotice();
+
+  const restored = await importWorkspacePackFromUrl(autoPackUrl);
+  if (!restored) {
+    setNotice("error", "重新加载部署资源包失败。");
+    syncNotice();
+    return;
+  }
+
+  const manifest = await fetchDeployedPackVersionManifest(autoPackVersionUrl);
+  if (manifest?.version) {
+    saveStoredDeployedPackVersion(manifest.version);
   }
 }
 
@@ -2900,7 +2982,16 @@ function syncNotice(): void {
   }
 
   view.notice.className = `notice notice-${state.notice.tone}`;
-  view.notice.innerHTML = `<p>${state.notice.text}</p>`;
+  view.notice.innerHTML = `
+    <div class="notice-copy">
+      <p>${state.notice.text}</p>
+      ${
+        state.notice.actionLabel && state.notice.actionId
+          ? `<button class="ghost-button compact-action" type="button" data-notice-action="${state.notice.actionId}">${state.notice.actionLabel}</button>`
+          : ""
+      }
+    </div>
+  `;
 }
 
 function syncBoardState(): void {
@@ -3022,6 +3113,7 @@ root.addEventListener("click", (event) => {
   const target = event.target as HTMLElement;
   const cellButton = target.closest<HTMLElement>("[data-cell-id]");
   const actionButton = target.closest<HTMLElement>("[data-action]");
+  const noticeActionButton = target.closest<HTMLElement>("[data-notice-action]");
   const bankTabButton = target.closest<HTMLElement>("[data-bank-tab]");
   const pageNavButton = target.closest<HTMLElement>("[data-page-nav]");
   const removeHaloButton = target.closest<HTMLElement>("[data-remove-halo]");
@@ -3033,6 +3125,11 @@ root.addEventListener("click", (event) => {
 
   if (cellButton?.dataset.cellId) {
     handleCellSelection(cellButton.dataset.cellId);
+    return;
+  }
+
+  if (noticeActionButton?.dataset.noticeAction === "reload-deployed-pack") {
+    void reloadDeployedWorkspacePack();
     return;
   }
 
@@ -3340,9 +3437,21 @@ async function bootstrap(): Promise<void> {
     render();
     await nextFrame();
 
+    const deployedManifest = await fetchDeployedPackVersionManifest(autoPackVersionUrl);
+    const storedDeployedVersion = getStoredDeployedPackVersion();
+
     let restored = await restoreWorkspace();
 
     if (restored) {
+      if (deployedManifest?.version && deployedManifest.version !== storedDeployedVersion) {
+        const versionSuffix = deployedManifest.updatedAt ? `（${deployedManifest.updatedAt}）` : "";
+        setNoticeWithAction(
+          "info",
+          `检测到部署资源包已更新到 ${deployedManifest.version}${versionSuffix}。如果你想同步线上素材包，请点击重新加载。`,
+          "重新加载部署资源包",
+          "reload-deployed-pack",
+        );
+      }
       applyTheme();
       syncUiPreserveScroll();
       return;
@@ -3350,6 +3459,9 @@ async function bootstrap(): Promise<void> {
 
     if (!restored && autoPackUrl) {
       restored = await importWorkspacePackFromUrl(autoPackUrl);
+      if (restored && deployedManifest?.version) {
+        saveStoredDeployedPackVersion(deployedManifest.version);
+      }
     }
 
     if (restored) {

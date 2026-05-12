@@ -6,7 +6,7 @@ function copyRootAssets() {
   return {
     name: "copy-root-assets",
     writeBundle() {
-      const assetsToCopy = ["resource.zip"];
+      const assetsToCopy = ["resource.zip", "resource.version.json"];
 
       for (const asset of assetsToCopy) {
         const source = resolve(__dirname, asset);

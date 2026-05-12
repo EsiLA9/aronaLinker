@@ -190,6 +190,14 @@ img {
   border-radius: 20px;
 }
 
+.notice-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .notice p {
   margin: 0;
 }
@@ -753,7 +761,8 @@ img {
   }
 
   .topbar-actions,
-  .stage-stats {
+  .stage-stats,
+  .notice-copy {
     width: 100%;
   }
 

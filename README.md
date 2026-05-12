@@ -48,6 +48,7 @@ npm run cf:dev
 - `dist/` 会作为 Worker 的静态资源目录上传。
 - `/starter/`、`/starter` 这类目录路由会自动回退到对应的 `index.html`。
 - 仓库根目录的 `resource.zip` 会在构建时自动复制到 `dist/resource.zip`，并作为 `starter/` 页面的默认素材包自动加载。
+- 仓库根目录的 `resource.version.json` 会在构建时自动复制到 `dist/resource.version.json`，用于提示线上部署资源包是否有新版本，并在页面内提供重新加载入口。
 
 ## 环境要求
 

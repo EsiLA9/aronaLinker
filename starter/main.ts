@@ -1357,22 +1357,21 @@ async function downloadWorkspacePack(): Promise<void> {
   const audioPack: SerializedAudioConfig = {};
   const audioCueKeys: AudioCueKey[] = ["start", "click", "match", "finish"];
   for (const cue of audioCueKeys) {
-    const cueConfig = payload.audio?.[cue];
-    const clip = cueConfig?.clip;
-    const volume = cueConfig?.volume ?? DEFAULT_AUDIO[cue].volume;
-    if (!clip?.src) {
+    const serializedClip = payload.audio?.[cue];
+    const volume = serializedClip?.volume ?? DEFAULT_AUDIO[cue].volume;
+    if (!serializedClip?.src) {
       audioPack[cue] = {
         volume,
       };
       continue;
     }
 
-    const blob = dataUrlToBlob(clip.src);
+    const blob = dataUrlToBlob(serializedClip.src);
     const fileName = `audio/${cue}.${getFileExtensionFromMime(blob.type)}`;
     zip.file(fileName, blob);
     audioPack[cue] = {
       file: fileName,
-      mimeType: clip.mimeType || blob.type,
+      mimeType: serializedClip.mimeType || blob.type,
       volume,
     };
   }

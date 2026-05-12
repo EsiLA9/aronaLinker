@@ -2,6 +2,8 @@ import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { defineConfig } from "vite";
 
+import { cloudflare } from "@cloudflare/vite-plugin";
+
 function copyRootAssets() {
   return {
     name: "copy-root-assets",
@@ -24,7 +26,7 @@ function copyRootAssets() {
 
 export default defineConfig({
   base: "./",
-  plugins: [copyRootAssets()],
+  plugins: [copyRootAssets(), cloudflare()],
   build: {
     rollupOptions: {
       input: {

@@ -670,6 +670,45 @@ img {
   flex: 1 1 320px;
 }
 
+.audio-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.audio-config-card {
+  display: grid;
+  gap: 10px;
+}
+
+.audio-config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audio-volume-field {
+  gap: 8px;
+}
+
+.audio-volume-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.audio-volume-row input[type="range"] {
+  width: 100%;
+}
+
+.audio-volume-row strong {
+  min-width: 3.4rem;
+  text-align: right;
+  color: var(--theme-heading, #ffffff);
+}
+
 .empty-copy {
   margin: 14px 0 0;
 }
@@ -720,6 +759,7 @@ img {
 
   .import-grid,
   .config-grid,
+  .audio-config-grid,
   .asset-bank-grid,
   .stage-metrics {
     grid-template-columns: 1fr;

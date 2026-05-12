@@ -17,6 +17,7 @@ type NoticeTone = "info" | "success" | "error";
 type GamePhase = "setup" | "playing" | "won";
 type HaloKindsMode = "manual" | "maximize";
 type AssetBankTab = "halo" | "chara";
+type AudioCueKey = "start" | "click" | "match" | "finish";
 
 type HaloAsset = {
   id: string;
@@ -60,6 +61,18 @@ type ThemeConfig = {
   backgroundImage: string;
 };
 
+type AudioClip = {
+  src: string;
+  mimeType: string;
+};
+
+type AudioCueConfig = {
+  clip: AudioClip | null;
+  volume: number;
+};
+
+type AudioConfig = Record<AudioCueKey, AudioCueConfig>;
+
 type BoardCell = {
   id: string;
   assetId: string;
@@ -92,12 +105,22 @@ type SerializedAsset = {
   haloId?: string | null;
 };
 
+type SerializedAudioClip = {
+  src?: string;
+  file?: string;
+  mimeType?: string;
+  volume?: number;
+};
+
+type SerializedAudioConfig = Partial<Record<AudioCueKey, SerializedAudioClip | null>>;
+
 type SavedWorkspace = {
   version: 1;
   halos: SerializedAsset[];
   charas: SerializedAsset[];
   config: GameConfig;
   theme: ThemeConfig;
+  audio?: SerializedAudioConfig;
 };
 
 type ScrollSnapshot = {
@@ -139,11 +162,50 @@ const DEFAULT_THEME: ThemeConfig = {
   backgroundImage: "",
 };
 
+const DEFAULT_AUDIO: AudioConfig = {
+  start: {
+    clip: null,
+    volume: 1,
+  },
+  click: {
+    clip: null,
+    volume: 1,
+  },
+  match: {
+    clip: null,
+    volume: 1,
+  },
+  finish: {
+    clip: null,
+    volume: 1,
+  },
+};
+
+const AUDIO_CUE_LABELS: Record<AudioCueKey, { title: string; description: string }> = {
+  start: {
+    title: "开始音乐",
+    description: "点击开始或重新开始时播放",
+  },
+  click: {
+    title: "点击音乐",
+    description: "每次点选棋盘格时播放",
+  },
+  match: {
+    title: "连接成功音乐",
+    description: "配对成功但尚未通关时播放",
+  },
+  finish: {
+    title: "结束音乐",
+    description: "全部消除完成时播放",
+  },
+};
+
 const state = {
   halos: [] as HaloAsset[],
   charas: [] as CharaAsset[],
   config: { ...DEFAULT_CONFIG },
   theme: { ...DEFAULT_THEME },
+  audio: { ...DEFAULT_AUDIO },
   phase: "setup" as GamePhase,
   isWorkbenchOpen: false,
   assetBankTab: "halo" as AssetBankTab,
@@ -193,10 +255,23 @@ let restartHoldTimeoutHandle: number | null = null;
 let restartHoldIntervalHandle: number | null = null;
 let restartHoldStartedAt: number | null = null;
 const RESTART_HOLD_MS = 2000;
+const activeSoundPlayers = new Set<HTMLAudioElement>();
+const activeAudioByCue = new Map<AudioCueKey, HTMLAudioElement>();
 let tutorialHintTimeoutHandle: number | null = null;
 let tutorialHintClearHandle: number | null = null;
 const TUTORIAL_HINT_DELAY_MS = 5000;
 const TUTORIAL_HINT_FLASH_MS = 1200;
+const TUTORIAL_HINT_REPEAT_MS = 3200;
+
+function getExclusiveAudioCueGroup(cue: AudioCueKey): AudioCueKey[] {
+  switch (cue) {
+    case "start":
+    case "finish":
+      return ["start", "finish"];
+    default:
+      return [cue];
+  }
+}
 
 function createDemoData(): DemoSet {
   const haloSeeds = [
@@ -410,13 +485,7 @@ function cancelTutorialHint(): void {
   clearHintedCells();
 }
 
-function scheduleTutorialHint(): void {
-  cancelTutorialHint();
-
-  if (!state.config.tutorialMode || state.phase !== "playing" || !state.selectedCellId) {
-    return;
-  }
-
+function queueTutorialHint(delayMs: number): void {
   tutorialHintTimeoutHandle = window.setTimeout(() => {
     tutorialHintTimeoutHandle = null;
 
@@ -426,6 +495,7 @@ function scheduleTutorialHint(): void {
 
     state.hintedCellIds = getPairableCellIds(state.selectedCellId);
     if (state.hintedCellIds.length === 0) {
+      queueTutorialHint(TUTORIAL_HINT_REPEAT_MS);
       return;
     }
 
@@ -433,8 +503,24 @@ function scheduleTutorialHint(): void {
     tutorialHintClearHandle = window.setTimeout(() => {
       tutorialHintClearHandle = null;
       clearHintedCells();
+
+      if (!state.config.tutorialMode || state.phase !== "playing" || !state.selectedCellId) {
+        return;
+      }
+
+      queueTutorialHint(TUTORIAL_HINT_REPEAT_MS);
     }, TUTORIAL_HINT_FLASH_MS);
-  }, TUTORIAL_HINT_DELAY_MS);
+  }, delayMs);
+}
+
+function scheduleTutorialHint(): void {
+  cancelTutorialHint();
+
+  if (!state.config.tutorialMode || state.phase !== "playing" || !state.selectedCellId) {
+    return;
+  }
+
+  queueTutorialHint(TUTORIAL_HINT_DELAY_MS);
 }
 
 async function loadConfettiLauncher(): Promise<CreateTypes | null> {
@@ -691,13 +777,33 @@ function serializeWorkspace(): SavedWorkspace {
     })),
     config: { ...state.config },
     theme: { ...state.theme },
+    audio: {
+      start: {
+        ...(state.audio.start.clip ? { ...state.audio.start.clip } : {}),
+        volume: state.audio.start.volume,
+      },
+      click: {
+        ...(state.audio.click.clip ? { ...state.audio.click.clip } : {}),
+        volume: state.audio.click.volume,
+      },
+      match: {
+        ...(state.audio.match.clip ? { ...state.audio.match.clip } : {}),
+        volume: state.audio.match.volume,
+      },
+      finish: {
+        ...(state.audio.finish.clip ? { ...state.audio.finish.clip } : {}),
+        volume: state.audio.finish.volume,
+      },
+    },
   };
 }
 
 function applyWorkspaceData(payload: SavedWorkspace): void {
+  stopAudioCueGroup("start");
   releaseThemeBackgroundImage();
   revokeUploadedUrls(state.halos);
   revokeUploadedUrls(state.charas);
+  stopAllActiveSounds();
 
   state.halos = payload.halos.map((halo) => ({
     id: halo.id,
@@ -722,7 +828,7 @@ function applyWorkspaceData(payload: SavedWorkspace): void {
     rows: clamp(payload.config.rows, 2, 12),
     cols: clamp(payload.config.cols, 2, 12),
     haloKindsMode: payload.config.haloKindsMode === "maximize" ? "maximize" : "manual",
-    haloKinds: clamp(payload.config.haloKinds, 1, 12),
+    haloKinds: Math.max(1, Math.round(payload.config.haloKinds)),
     maxCharasPerHalo: clamp(payload.config.maxCharasPerHalo, 1, 12),
     tutorialMode: payload.config.tutorialMode ?? DEFAULT_CONFIG.tutorialMode,
   };
@@ -739,6 +845,45 @@ function applyWorkspaceData(payload: SavedWorkspace): void {
     backgroundStart: payload.theme.backgroundStart || DEFAULT_THEME.backgroundStart,
     backgroundEnd: payload.theme.backgroundEnd || DEFAULT_THEME.backgroundEnd,
     backgroundImage: payload.theme.backgroundImage || "",
+  };
+
+  state.audio = {
+    start: {
+      clip: payload.audio?.start?.src
+        ? {
+            src: payload.audio.start.src,
+            mimeType: payload.audio.start.mimeType || dataUrlToBlob(payload.audio.start.src).type || "audio/mpeg",
+          }
+        : null,
+      volume: clamp(payload.audio?.start?.volume ?? DEFAULT_AUDIO.start.volume, 0, 1),
+    },
+    click: {
+      clip: payload.audio?.click?.src
+        ? {
+            src: payload.audio.click.src,
+            mimeType: payload.audio.click.mimeType || dataUrlToBlob(payload.audio.click.src).type || "audio/mpeg",
+          }
+        : null,
+      volume: clamp(payload.audio?.click?.volume ?? DEFAULT_AUDIO.click.volume, 0, 1),
+    },
+    match: {
+      clip: payload.audio?.match?.src
+        ? {
+            src: payload.audio.match.src,
+            mimeType: payload.audio.match.mimeType || dataUrlToBlob(payload.audio.match.src).type || "audio/mpeg",
+          }
+        : null,
+      volume: clamp(payload.audio?.match?.volume ?? DEFAULT_AUDIO.match.volume, 0, 1),
+    },
+    finish: {
+      clip: payload.audio?.finish?.src
+        ? {
+            src: payload.audio.finish.src,
+            mimeType: payload.audio.finish.mimeType || dataUrlToBlob(payload.audio.finish.src).type || "audio/mpeg",
+          }
+        : null,
+      volume: clamp(payload.audio?.finish?.volume ?? DEFAULT_AUDIO.finish.volume, 0, 1),
+    },
   };
 
   state.phase = "setup";
@@ -791,27 +936,370 @@ async function restoreWorkspace(): Promise<boolean> {
 }
 
 function getFileExtensionFromMime(mimeType: string): string {
-  if (mimeType.includes("png")) {
+  const normalizedMimeType = mimeType.toLowerCase();
+
+  if (normalizedMimeType.includes("png")) {
     return "png";
   }
 
-  if (mimeType.includes("jpeg")) {
+  if (normalizedMimeType.includes("jpeg")) {
     return "jpg";
   }
 
-  if (mimeType.includes("webp")) {
+  if (normalizedMimeType.includes("webp")) {
     return "webp";
   }
 
-  if (mimeType.includes("gif")) {
+  if (normalizedMimeType.includes("gif")) {
     return "gif";
   }
 
-  if (mimeType.includes("svg")) {
+  if (normalizedMimeType.includes("svg")) {
     return "svg";
   }
 
+  if (normalizedMimeType.includes("bmp")) {
+    return "bmp";
+  }
+
+  if (normalizedMimeType.includes("avif")) {
+    return "avif";
+  }
+
+  if (normalizedMimeType.includes("mpeg")) {
+    return "mp3";
+  }
+
+  if (normalizedMimeType.includes("wav")) {
+    return "wav";
+  }
+
+  if (normalizedMimeType.includes("ogg")) {
+    return "ogg";
+  }
+
+  if (normalizedMimeType.includes("aac")) {
+    return "aac";
+  }
+
+  if (normalizedMimeType.includes("mp4") || normalizedMimeType.includes("m4a")) {
+    return "m4a";
+  }
+
   return "bin";
+}
+
+function getMimeTypeFromFileName(fileName: string): string | null {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+
+  switch (extension) {
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    case "gif":
+      return "image/gif";
+    case "svg":
+      return "image/svg+xml";
+    case "bmp":
+      return "image/bmp";
+    case "avif":
+      return "image/avif";
+    case "mp3":
+      return "audio/mpeg";
+    case "wav":
+      return "audio/wav";
+    case "ogg":
+      return "audio/ogg";
+    case "aac":
+      return "audio/aac";
+    case "m4a":
+      return "audio/mp4";
+    default:
+      return null;
+  }
+}
+
+function sniffImageMimeType(bytes: Uint8Array): string | null {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+
+  if (
+    bytes.length >= 6 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x38 &&
+    (bytes[4] === 0x37 || bytes[4] === 0x39) &&
+    bytes[5] === 0x61
+  ) {
+    return "image/gif";
+  }
+
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+
+  if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4d) {
+    return "image/bmp";
+  }
+
+  if (
+    bytes.length >= 12 &&
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70 &&
+    bytes[8] === 0x61 &&
+    bytes[9] === 0x76 &&
+    bytes[10] === 0x69 &&
+    (bytes[11] === 0x66 || bytes[11] === 0x73)
+  ) {
+    return "image/avif";
+  }
+
+  const text = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 256)));
+  const normalizedText = text.replace(/^\uFEFF/, "").trimStart();
+  if (normalizedText.startsWith("<svg") || (normalizedText.startsWith("<?xml") && normalizedText.includes("<svg"))) {
+    return "image/svg+xml";
+  }
+
+  return null;
+}
+
+function sniffAudioMimeType(bytes: Uint8Array): string | null {
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0x49 &&
+    bytes[1] === 0x44 &&
+    bytes[2] === 0x33
+  ) {
+    return "audio/mpeg";
+  }
+
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) {
+    return "audio/mpeg";
+  }
+
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x41 &&
+    bytes[10] === 0x56 &&
+    bytes[11] === 0x45
+  ) {
+    return "audio/wav";
+  }
+
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x4f &&
+    bytes[1] === 0x67 &&
+    bytes[2] === 0x67 &&
+    bytes[3] === 0x53
+  ) {
+    return "audio/ogg";
+  }
+
+  if (
+    bytes.length >= 12 &&
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70 &&
+    (bytes[8] === 0x4d || bytes[8] === 0x69)
+  ) {
+    return "audio/mp4";
+  }
+
+  return null;
+}
+
+async function normalizeBlobMimeType(
+  blob: Blob,
+  fileName?: string,
+  storedMimeType?: string,
+): Promise<Blob> {
+  const directMimeType = [storedMimeType, blob.type, fileName ? getMimeTypeFromFileName(fileName) : null].find(
+    (candidate): candidate is string =>
+      Boolean(candidate?.startsWith("image/") || candidate?.startsWith("audio/")),
+  );
+
+  if (directMimeType) {
+    return directMimeType === blob.type ? blob : blob.slice(0, blob.size, directMimeType);
+  }
+
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const sniffedMimeType = sniffImageMimeType(bytes) ?? sniffAudioMimeType(bytes);
+  if (!sniffedMimeType || sniffedMimeType === blob.type) {
+    return blob;
+  }
+
+  return blob.slice(0, blob.size, sniffedMimeType);
+}
+
+function describeWorkspacePackImportError(error: unknown): string {
+  if (error instanceof SyntaxError) {
+    return "workspace.json 不是合法的 JSON。";
+  }
+
+  if (error instanceof Error) {
+    const message = error.message.trim();
+    if (!message) {
+      return "发生了未知错误。";
+    }
+
+    if (message === "workspace.json missing") {
+      return "压缩包内缺少 workspace.json。";
+    }
+
+    if (message.startsWith("Unsupported pack version:")) {
+      return `不支持的素材包版本。${message.replace("Unsupported pack version:", " version=").trim()}`;
+    }
+
+    if (message.includes("Can't find end of central directory")) {
+      return "文件不是合法的 zip 压缩包，或压缩包已损坏。";
+    }
+
+    return message;
+  }
+
+  return "发生了未知错误。";
+}
+
+function stopAllActiveSounds(): void {
+  activeSoundPlayers.forEach((audio) => {
+    audio.pause();
+    audio.currentTime = 0;
+  });
+  activeSoundPlayers.clear();
+  activeAudioByCue.clear();
+}
+
+function stopAudioCueGroup(cue: AudioCueKey): void {
+  getExclusiveAudioCueGroup(cue).forEach((groupCue) => {
+    const audio = activeAudioByCue.get(groupCue);
+    if (!audio) {
+      return;
+    }
+
+    audio.pause();
+    audio.currentTime = 0;
+    activeSoundPlayers.delete(audio);
+    activeAudioByCue.delete(groupCue);
+  });
+}
+
+async function playAudioCue(cue: AudioCueKey, options?: { loop?: boolean }): Promise<void> {
+  const cueConfig = state.audio[cue];
+  const clip = cueConfig.clip;
+  if (!clip?.src) {
+    return;
+  }
+
+  try {
+    stopAudioCueGroup(cue);
+    const audio = new Audio(clip.src);
+    audio.preload = "auto";
+    audio.volume = clamp(cueConfig.volume, 0, 1);
+    audio.loop = options?.loop ?? false;
+    activeSoundPlayers.add(audio);
+    activeAudioByCue.set(cue, audio);
+
+    const cleanup = () => {
+      activeSoundPlayers.delete(audio);
+      if (activeAudioByCue.get(cue) === audio) {
+        activeAudioByCue.delete(cue);
+      }
+      audio.removeEventListener("ended", cleanup);
+      audio.removeEventListener("error", cleanup);
+      audio.removeEventListener("pause", cleanup);
+    };
+
+    if (!audio.loop) {
+      audio.addEventListener("ended", cleanup);
+    }
+    audio.addEventListener("error", cleanup);
+    audio.addEventListener("pause", cleanup);
+
+    await audio.play();
+  } catch (error) {
+    console.warn(`Failed to play audio cue: ${cue}`, error);
+  }
+}
+
+async function updateAudioCue(cue: AudioCueKey, files: FileList): Promise<void> {
+  const audioFile = Array.from(files).find((file) => file.type.startsWith("audio/"));
+
+  if (!audioFile) {
+    setNotice("error", `没有读取到可用音频，请为 ${AUDIO_CUE_LABELS[cue].title} 选择音频文件。`);
+    syncNotice();
+    return;
+  }
+
+  stopAllActiveSounds();
+  state.audio[cue].clip = {
+    src: await blobToDataUrl(audioFile),
+    mimeType: audioFile.type || "audio/mpeg",
+  };
+  persistWorkspace();
+  setNotice("success", `${AUDIO_CUE_LABELS[cue].title}已更新。`);
+  syncUiPreserveScroll({ stage: false });
+}
+
+function clearAudioCue(cue: AudioCueKey): void {
+  stopAllActiveSounds();
+  state.audio[cue].clip = null;
+  persistWorkspace();
+  setNotice("info", `已清除${AUDIO_CUE_LABELS[cue].title}。`);
+  syncUiPreserveScroll({ stage: false });
+}
+
+function updateAudioCueVolume(cue: AudioCueKey, rawValue: string): void {
+  const numeric = Number(rawValue);
+  if (!Number.isFinite(numeric)) {
+    return;
+  }
+
+  state.audio[cue].volume = clamp(numeric / 100, 0, 1);
+  persistWorkspace();
+
+  const volumeLabel = root.querySelector<HTMLElement>(`[data-audio-volume-label="${cue}"]`);
+  if (volumeLabel) {
+    volumeLabel.textContent = formatAudioVolumePercentage(state.audio[cue].volume);
+  }
 }
 
 async function downloadWorkspacePack(): Promise<void> {
@@ -829,22 +1317,24 @@ async function downloadWorkspacePack(): Promise<void> {
   };
 
   for (const halo of payload.halos) {
-    const fileName = `halos/${halo.id}.${getFileExtensionFromMime(dataUrlToBlob(halo.src ?? "").type)}`;
-    zip.file(fileName, dataUrlToBlob(halo.src ?? ""));
+    const blob = dataUrlToBlob(halo.src ?? "");
+    const fileName = `halos/${halo.id}.${getFileExtensionFromMime(blob.type)}`;
+    zip.file(fileName, blob);
     pack.halos.push({
       id: halo.id,
       name: halo.name,
       alias: halo.alias,
       source: halo.source,
       file: fileName,
-      mimeType: dataUrlToBlob(halo.src ?? "").type,
+      mimeType: blob.type,
       persistMode: "inline",
     });
   }
 
   for (const chara of payload.charas) {
-    const fileName = `charas/${chara.id}.${getFileExtensionFromMime(dataUrlToBlob(chara.src ?? "").type)}`;
-    zip.file(fileName, dataUrlToBlob(chara.src ?? ""));
+    const blob = dataUrlToBlob(chara.src ?? "");
+    const fileName = `charas/${chara.id}.${getFileExtensionFromMime(blob.type)}`;
+    zip.file(fileName, blob);
     pack.charas.push({
       id: chara.id,
       name: chara.name,
@@ -852,7 +1342,7 @@ async function downloadWorkspacePack(): Promise<void> {
       source: chara.source,
       haloId: chara.haloId ?? null,
       file: fileName,
-      mimeType: dataUrlToBlob(chara.src ?? "").type,
+      mimeType: blob.type,
       persistMode: "inline",
     });
   }
@@ -863,6 +1353,30 @@ async function downloadWorkspacePack(): Promise<void> {
     zip.file(backgroundFile, backgroundBlob);
     pack.theme.backgroundImage = backgroundFile;
   }
+
+  const audioPack: SerializedAudioConfig = {};
+  const audioCueKeys: AudioCueKey[] = ["start", "click", "match", "finish"];
+  for (const cue of audioCueKeys) {
+    const cueConfig = payload.audio?.[cue];
+    const clip = cueConfig?.clip;
+    const volume = cueConfig?.volume ?? DEFAULT_AUDIO[cue].volume;
+    if (!clip?.src) {
+      audioPack[cue] = {
+        volume,
+      };
+      continue;
+    }
+
+    const blob = dataUrlToBlob(clip.src);
+    const fileName = `audio/${cue}.${getFileExtensionFromMime(blob.type)}`;
+    zip.file(fileName, blob);
+    audioPack[cue] = {
+      file: fileName,
+      mimeType: clip.mimeType || blob.type,
+      volume,
+    };
+  }
+  pack.audio = audioPack;
 
   zip.file("workspace.json", JSON.stringify(pack, null, 2));
 
@@ -898,17 +1412,17 @@ async function importWorkspacePack(files: FileList): Promise<boolean> {
     const parsed = JSON.parse(text) as SavedWorkspace;
 
     if (parsed.version !== 1) {
-      throw new Error("Unsupported pack version.");
+      throw new Error(`Unsupported pack version: ${String((parsed as { version?: unknown }).version ?? "unknown")}`);
     }
 
     const resolvedHalos = await Promise.all(
       parsed.halos.map(async (halo) => {
         const fileEntry = halo.file ? zip.file(halo.file) : null;
         if (!fileEntry) {
-          throw new Error("Missing halo asset");
+          throw new Error(`缺少 Halo 素材文件: ${halo.file || `${halo.id} (未记录 file 字段)`}`);
         }
 
-        const blob = await fileEntry.async("blob");
+        const blob = await normalizeBlobMimeType(await fileEntry.async("blob"), halo.file, halo.mimeType);
         return {
           ...halo,
           src: await blobToDataUrl(blob),
@@ -920,10 +1434,10 @@ async function importWorkspacePack(files: FileList): Promise<boolean> {
       parsed.charas.map(async (chara) => {
         const fileEntry = chara.file ? zip.file(chara.file) : null;
         if (!fileEntry) {
-          throw new Error("Missing chara asset");
+          throw new Error(`缺少 Chara 素材文件: ${chara.file || `${chara.id} (未记录 file 字段)`}`);
         }
 
-        const blob = await fileEntry.async("blob");
+        const blob = await normalizeBlobMimeType(await fileEntry.async("blob"), chara.file, chara.mimeType);
         return {
           ...chara,
           src: await blobToDataUrl(blob),
@@ -935,11 +1449,68 @@ async function importWorkspacePack(files: FileList): Promise<boolean> {
     if (parsed.theme.backgroundImage) {
       const backgroundEntry = zip.file(parsed.theme.backgroundImage);
       if (!backgroundEntry) {
-        throw new Error("Missing theme background asset");
+        throw new Error(`缺少背景图片文件: ${parsed.theme.backgroundImage}`);
       }
 
-      resolvedBackgroundImage = await blobToDataUrl(await backgroundEntry.async("blob"));
+      const backgroundBlob = await normalizeBlobMimeType(
+        await backgroundEntry.async("blob"),
+        parsed.theme.backgroundImage,
+      );
+      resolvedBackgroundImage = await blobToDataUrl(backgroundBlob);
     }
+
+    const resolvedAudioEntries = await Promise.all(
+      (["start", "click", "match", "finish"] as AudioCueKey[]).map(async (cue) => {
+        const audioEntryMeta = parsed.audio?.[cue];
+        if (!audioEntryMeta) {
+          return [
+            cue,
+            {
+              volume: DEFAULT_AUDIO[cue].volume,
+            },
+          ] as const;
+        }
+
+        if (audioEntryMeta.src) {
+          return [
+            cue,
+            {
+              src: audioEntryMeta.src,
+              mimeType: audioEntryMeta.mimeType || dataUrlToBlob(audioEntryMeta.src).type || "audio/mpeg",
+              volume: clamp(audioEntryMeta.volume ?? DEFAULT_AUDIO[cue].volume, 0, 1),
+            },
+          ] as const;
+        }
+
+        if (!audioEntryMeta.file) {
+          return [
+            cue,
+            {
+              volume: clamp(audioEntryMeta.volume ?? DEFAULT_AUDIO[cue].volume, 0, 1),
+            },
+          ] as const;
+        }
+
+        const audioEntry = zip.file(audioEntryMeta.file);
+        if (!audioEntry) {
+          throw new Error(`缺少音频文件: ${audioEntryMeta.file}`);
+        }
+
+        const audioBlob = await normalizeBlobMimeType(
+          await audioEntry.async("blob"),
+          audioEntryMeta.file,
+          audioEntryMeta.mimeType,
+        );
+        return [
+          cue,
+          {
+            src: await blobToDataUrl(audioBlob),
+            mimeType: audioBlob.type || audioEntryMeta.mimeType || "audio/mpeg",
+            volume: clamp(audioEntryMeta.volume ?? DEFAULT_AUDIO[cue].volume, 0, 1),
+          },
+        ] as const;
+      }),
+    );
 
     applyWorkspaceData({
       ...parsed,
@@ -949,15 +1520,15 @@ async function importWorkspacePack(files: FileList): Promise<boolean> {
         ...parsed.theme,
         backgroundImage: resolvedBackgroundImage,
       },
+      audio: Object.fromEntries(resolvedAudioEntries) as SerializedAudioConfig,
     });
     persistWorkspace();
     setNotice("success", "素材压缩包已导入。");
-    if (view.notice && view.stage && view.modalLayer) {
-      syncUiPreserveScroll();
-    }
+    syncUiPreserveScroll();
     return true;
-  } catch {
-    setNotice("error", "素材压缩包读取失败，请确认 zip 结构正确。");
+  } catch (error) {
+    console.error("Failed to import workspace pack", error);
+    setNotice("error", `素材压缩包读取失败：${describeWorkspacePackImportError(error)}`);
     if (view.notice) {
       syncNotice();
     }
@@ -1076,6 +1647,52 @@ function clearThemeBackgroundImage(): void {
   syncNotice();
 }
 
+function formatAudioVolumePercentage(volume: number): string {
+  return `${Math.round(clamp(volume, 0, 1) * 100)}%`;
+}
+
+function renderAudioConfigCard(cue: AudioCueKey): string {
+  const cueConfig = state.audio[cue];
+  const clip = cueConfig.clip;
+  const label = AUDIO_CUE_LABELS[cue];
+  const statusText = clip ? "已设置 1 条音频" : "当前未设置音频";
+
+  return `
+    <div class="audio-config-card">
+      <label class="import-item theme-image-item">
+        <div class="import-copy">
+          <span>${label.title}</span>
+          <small>${label.description}。${statusText}</small>
+        </div>
+        <input type="file" accept="audio/*" data-audio-cue="${cue}" />
+        <em>选择音频</em>
+      </label>
+      <div class="audio-config-actions">
+        <button class="ghost-button compact-action" type="button" data-action="preview-audio-cue" data-audio-cue="${cue}" ${clip ? "" : "disabled"}>
+          试听
+        </button>
+        <button class="ghost-button compact-action" type="button" data-action="clear-audio-cue" data-audio-cue="${cue}" ${clip ? "" : "disabled"}>
+          清除
+        </button>
+      </div>
+      <label class="field audio-volume-field">
+        <span>${label.title}音量</span>
+        <div class="audio-volume-row">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="${Math.round(cueConfig.volume * 100)}"
+            data-audio-volume="${cue}"
+          />
+          <strong data-audio-volume-label="${cue}">${formatAudioVolumePercentage(cueConfig.volume)}</strong>
+        </div>
+      </label>
+    </div>
+  `;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -1122,6 +1739,7 @@ function revokeUploadedUrls(items: Array<HaloAsset | CharaAsset>): void {
 }
 
 function resetToDemoAssets(): void {
+  stopAudioCueGroup("start");
   revokeUploadedUrls(state.halos);
   revokeUploadedUrls(state.charas);
   const demo = createDemoData();
@@ -1252,6 +1870,7 @@ function startGame(): void {
   state.matches = 0;
   startGameTimer();
   setNotice("success", "棋盘已部署。点击 1 个 Chara 和 1 个 Halo，若它们有映射关系即可消除。");
+  void playAudioCue("start", { loop: true });
   syncUiPreserveScroll();
 }
 
@@ -1355,6 +1974,8 @@ function handleCellSelection(cellId: string): void {
     return;
   }
 
+  void playAudioCue("click");
+
   if (state.selectedCellId === cellId) {
     state.selectedCellId = null;
     cancelTutorialHint();
@@ -1416,9 +2037,11 @@ function handleCellSelection(cellId: string): void {
       updateElapsedTime();
       stopGameTimer();
       setNotice("success", `全部清空，通关完成。共尝试 ${state.moves} 次配对，用时 ${formatElapsedTime(state.elapsedMs)}。`);
+      void playAudioCue("finish");
       void launchWinConfetti();
     } else {
       setNotice("success", `配对成功：${charaCell.name} 与 ${haloCell.name} 已消除。`);
+      void playAudioCue("match");
     }
   } else {
     state.selectedCellId = cellId;
@@ -1478,6 +2101,7 @@ async function importFiles(kind: "halo" | "chara", files: FileList, haloId?: str
     );
   }
 
+  stopAudioCueGroup("start");
   state.phase = "setup";
   persistWorkspace();
   if (kind === "chara" && haloId && state.selectedHaloId === haloId) {
@@ -1491,6 +2115,7 @@ async function importFiles(kind: "halo" | "chara", files: FileList, haloId?: str
 }
 
 function removeHalo(haloId: string): void {
+  stopAudioCueGroup("start");
   const target = state.halos.find((halo) => halo.id === haloId);
   if (!target) {
     return;
@@ -1526,6 +2151,7 @@ function removeChara(charaId: string): void {
     URL.revokeObjectURL(target.src);
   }
 
+  stopAudioCueGroup("start");
   state.charas = state.charas.filter((chara) => chara.id !== charaId);
   state.phase = "setup";
   setNotice("info", `已移除 Chara：${target.name}。`);
@@ -1542,6 +2168,7 @@ function updateConfigValue(key: keyof GameConfig, rawValue: string): void {
       scheduleTutorialHint();
     }
     persistWorkspace();
+    stopAudioCueGroup("start");
     syncUiPreserveScroll();
     return;
   }
@@ -1549,6 +2176,7 @@ function updateConfigValue(key: keyof GameConfig, rawValue: string): void {
   if (key === "haloKindsMode") {
     state.config.haloKindsMode = rawValue === "maximize" ? "maximize" : "manual";
     persistWorkspace();
+    stopAudioCueGroup("start");
     syncUiPreserveScroll();
     return;
   }
@@ -1561,16 +2189,18 @@ function updateConfigValue(key: keyof GameConfig, rawValue: string): void {
   const ranges: Record<Exclude<keyof GameConfig, "haloKindsMode" | "tutorialMode">, [number, number]> = {
     rows: [2, 12],
     cols: [2, 12],
-    haloKinds: [1, 12],
+    haloKinds: [1, Number.MAX_SAFE_INTEGER],
     maxCharasPerHalo: [1, 12],
   };
 
   state.config[key] = clamp(Math.round(numeric), ranges[key][0], ranges[key][1]);
   persistWorkspace();
+  stopAudioCueGroup("start");
   syncUiPreserveScroll();
 }
 
 function updateCharaRelation(charaId: string, haloId: string): void {
+  stopAudioCueGroup("start");
   state.charas = state.charas.map((chara) =>
     chara.id === charaId ? { ...chara, haloId: haloId || null } : chara,
   );
@@ -1965,7 +2595,6 @@ function renderWorkbenchModal(): string {
   const linkedHalos = getLinkedHalos();
   const totalCells = state.config.rows * state.config.cols;
   const evenStatus = totalCells % 2 === 0 ? "可开局" : "需调整为偶数格";
-  const maxHaloKinds = Math.max(1, Math.min(linkedHalos.length, totalCells / 2));
   const effectiveHaloKinds = getEffectiveHaloKinds(linkedHalos.length);
 
   if (!state.isWorkbenchOpen) {
@@ -2063,7 +2692,7 @@ function renderWorkbenchModal(): string {
               </label>
               <label class="field">
                 <span>手动 Halo 种类</span>
-                <input type="number" min="1" max="${maxHaloKinds}" value="${Math.min(state.config.haloKinds, maxHaloKinds)}" data-config-key="haloKinds" ${state.config.haloKindsMode === "maximize" ? "disabled" : ""} />
+                <input type="number" min="1" value="${state.config.haloKinds}" data-config-key="haloKinds" ${state.config.haloKindsMode === "maximize" ? "disabled" : ""} />
               </label>
               <label class="field">
                 <span>单 Halo 最多 Chara 种类</span>
@@ -2140,6 +2769,19 @@ function renderWorkbenchModal(): string {
               </label>
               <button class="ghost-button" type="button" data-action="clear-theme-background">清除背景图</button>
             </div>
+          </section>
+
+          <section class="bench-section">
+            <div class="section-head">
+              <p class="eyebrow">Audio</p>
+              <h3>音乐与音效</h3>
+            </div>
+            <div class="audio-config-grid">
+              ${(["start", "click", "match", "finish"] as AudioCueKey[]).map((cue) => renderAudioConfigCard(cue)).join("")}
+            </div>
+            <p class="field-hint">
+              支持在工作台中分别设置开始、点击、连接成功、结束四个时机的音频，这些设置会跟随素材包一起导出和导入。
+            </p>
           </section>
 
         </div>
@@ -2474,6 +3116,34 @@ root.addEventListener("click", (event) => {
     case "clear-theme-background":
       clearThemeBackgroundImage();
       break;
+    case "preview-audio-cue":
+      if (
+        actionButton instanceof HTMLElement &&
+        actionButton.dataset.audioCue &&
+        (
+          actionButton.dataset.audioCue === "start" ||
+          actionButton.dataset.audioCue === "click" ||
+          actionButton.dataset.audioCue === "match" ||
+          actionButton.dataset.audioCue === "finish"
+        )
+      ) {
+        void playAudioCue(actionButton.dataset.audioCue);
+      }
+      break;
+    case "clear-audio-cue":
+      if (
+        actionButton instanceof HTMLElement &&
+        actionButton.dataset.audioCue &&
+        (
+          actionButton.dataset.audioCue === "start" ||
+          actionButton.dataset.audioCue === "click" ||
+          actionButton.dataset.audioCue === "match" ||
+          actionButton.dataset.audioCue === "finish"
+        )
+      ) {
+        clearAudioCue(actionButton.dataset.audioCue);
+      }
+      break;
     case "export-pack":
       void downloadWorkspacePack();
       break;
@@ -2554,6 +3224,36 @@ root.addEventListener("change", (event) => {
 
   if (
     target instanceof HTMLInputElement &&
+    target.dataset.audioCue &&
+    target.files &&
+    (
+      target.dataset.audioCue === "start" ||
+      target.dataset.audioCue === "click" ||
+      target.dataset.audioCue === "match" ||
+      target.dataset.audioCue === "finish"
+    )
+  ) {
+    void updateAudioCue(target.dataset.audioCue, target.files);
+    target.value = "";
+    return;
+  }
+
+  if (
+    target instanceof HTMLInputElement &&
+    target.dataset.audioVolume &&
+    (
+      target.dataset.audioVolume === "start" ||
+      target.dataset.audioVolume === "click" ||
+      target.dataset.audioVolume === "match" ||
+      target.dataset.audioVolume === "finish"
+    )
+  ) {
+    updateAudioCueVolume(target.dataset.audioVolume, target.value);
+    return;
+  }
+
+  if (
+    target instanceof HTMLInputElement &&
     target.dataset.assetAliasKind &&
     target.dataset.assetAliasId &&
     (target.dataset.assetAliasKind === "halo" || target.dataset.assetAliasKind === "chara")
@@ -2597,6 +3297,23 @@ root.addEventListener("input", (event) => {
 
   if (target instanceof HTMLInputElement && target.dataset.searchKind === "halo-chara") {
     updateHaloCharaSearch(target.value);
+    return;
+  }
+
+  if (
+    target instanceof HTMLInputElement &&
+    target.dataset.audioVolume &&
+    (
+      target.dataset.audioVolume === "start" ||
+      target.dataset.audioVolume === "click" ||
+      target.dataset.audioVolume === "match" ||
+      target.dataset.audioVolume === "finish"
+    )
+  ) {
+    const volumeLabel = root.querySelector<HTMLElement>(`[data-audio-volume-label="${target.dataset.audioVolume}"]`);
+    if (volumeLabel) {
+      volumeLabel.textContent = formatAudioVolumePercentage(Number(target.value) / 100);
+    }
   }
 });
 

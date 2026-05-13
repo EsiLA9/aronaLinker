@@ -61,6 +61,16 @@ img {
   backdrop-filter: blur(14px);
 }
 
+.language-fab {
+  position: fixed;
+  right: 22px;
+  bottom: 116px;
+  z-index: 34;
+  min-width: 132px;
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.32);
+  backdrop-filter: blur(14px);
+}
+
 .timer-toast-time {
   font-size: 1.05rem;
   font-weight: 800;
@@ -198,8 +208,47 @@ img {
   gap: 12px;
 }
 
+.notice-content {
+  display: grid;
+  gap: 10px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .notice p {
   margin: 0;
+}
+
+.notice-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.notice-progress small {
+  color: var(--theme-muted, #9db2ce);
+}
+
+.notice-progress-bar {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.notice-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--theme-accent, #7dd3fc), var(--theme-candidate, #facc15));
+  transition: width 120ms linear;
 }
 
 .notice-info {
@@ -420,6 +469,10 @@ img {
 
 .halo-chara-modal {
   width: min(920px, calc(100% - 24px));
+}
+
+.language-modal {
+  width: min(520px, calc(100% - 24px));
 }
 
 .modal-head {
@@ -690,6 +743,12 @@ img {
   gap: 10px;
 }
 
+.language-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .audio-config-actions {
   display: flex;
   flex-wrap: wrap;
@@ -762,7 +821,8 @@ img {
 
   .topbar-actions,
   .stage-stats,
-  .notice-copy {
+  .notice-copy,
+  .notice-actions {
     width: 100%;
   }
 
@@ -815,6 +875,11 @@ img {
   .topbar-actions .ghost-button,
   .topbar-actions .primary-button {
     flex: 1 1 0;
+  }
+
+  .language-fab {
+    right: 12px;
+    bottom: 112px;
   }
 
   .notice,
